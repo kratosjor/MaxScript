@@ -1,6 +1,7 @@
 import os
 import pymxs
 from PySide2 import QtWidgets, QtCore
+import importlib # Necesitamos esto para recargar módulos
 
 rt = pymxs.runtime
 
@@ -8,6 +9,13 @@ rt = pymxs.runtime
 ARNOLD_SKYDOME_FILE = r"C:\Users\irghhd\OneDrive - Trane Technologies\Desktop\Max\Max\S_E\Arnold_Skydome_Light.max"
 CAMARA_S_E_FILE = r"C:\Users\irghhd\OneDrive - Trane Technologies\Desktop\Max\Max\S_E\Camera_S_E.max"
 ARNOLD_GPU_PRESET_FILE = r"C:\Users\irghhd\OneDrive - Trane Technologies\Desktop\Max\Max\S_E\Arnold_GPU_Preset.rps"
+
+# La ruta del script adicional es crucial.
+# Asegúrate de que esta ruta DIRECTA al archivo .py es correcta.
+# ¡IMPORTANTE! Hemos movido este script a la misma carpeta que el principal para simplicidad de importación.
+# Si lo mantienes en S_E, la importación será más compleja. Lo ideal es tenerlo en la misma carpeta que el script principal.
+ADDITIONAL_OPTIONS_SCRIPT_DIR = r"C:\Users\irghhd\OneDrive - Trane Technologies\Desktop\Max\Max\S_E"
+ADDITIONAL_OPTIONS_SCRIPT_NAME = "opciones_adicionales.py" # Solo el nombre del archivo
 
 # --- CONFIGURACIÓN DEL TAMAÑO DE RENDER ---
 RENDER_WIDTH = 1613
@@ -20,11 +28,11 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
     def __init__(self):
         super(ImportSceneElementsUI, self).__init__()
         self.setWindowTitle("Importar/Configurar Escena")
-        self.setFixedSize(300, 450)
-        
+        self.setFixedSize(300, 500)
+
         # --- Configuración para mantener la ventana siempre encima y con botones de control ---
-        self.setWindowFlags(QtCore.Qt.Window | 
-                            QtCore.Qt.WindowStaysOnTopHint | 
+        self.setWindowFlags(QtCore.Qt.Window |
+                            QtCore.Qt.WindowStaysOnTopHint |
                             QtCore.Qt.WindowMinimizeButtonHint |
                             QtCore.Qt.WindowCloseButtonHint)
         # --- Fin de la configuración de ventana ---
@@ -51,14 +59,14 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
         self.btn_importar_camara = QtWidgets.QPushButton("Importar Cámara")
         self.btn_importar_camara.clicked.connect(self.importar_camara)
         self.btn_importar_camara.setToolTip("Importa una cámara predefinida en la escena.")
-        layout.addWidget(self.btn_importar_camara)        
+        layout.addWidget(self.btn_importar_camara)
 
         # Etiqueta de estado
         self.status_label = QtWidgets.QLabel("Listo para importar/configurar.")
         self.status_label.setAlignment(QtCore.Qt.AlignCenter)
         self.status_label.setWordWrap(True)
         self.status_label.setToolTip("Muestra mensajes sobre el estado de las operaciones de la herramienta.")
-        
+
         # --- OPCIONES DE CÁMARA ---
         camera_options_group = QtWidgets.QGroupBox("Opciones de cámara")
         camera_options_group.setToolTip("Configuraciones y ajustes para las cámaras Physical Camera en la escena.")
@@ -68,10 +76,10 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
         self.btn_auto_tilt.clicked.connect(self.activar_auto_tilt)
         self.btn_auto_tilt.setToolTip("Activa/Desactiva la corrección automática de la perspectiva vertical en cámaras físicas. Evita la distorsión al fotografiar edificios altos.")
         camera_options_layout.addWidget(self.btn_auto_tilt)
-        
+
         self.btn_auto_tilt_off = QtWidgets.QPushButton("Desactivar Perspectiva Vertical Automática")
         self.btn_auto_tilt_off.clicked.connect(self.desactivar_auto_tilt)
-        self.btn_auto_tilt_off.setToolTip("Activa/Desactiva la corrección automática de la perspectiva vertical en cámaras físicas. Evita la distorsión al fotografiar edificios altos.")
+        self.btn_auto_tilt_off.setToolTip("Desactiva la corrección automática de la perspectiva vertical y reinicia la inclinación.")
         camera_options_layout.addWidget(self.btn_auto_tilt_off)
 
         # --- Focal Length dentro de Opciones de cámara ---
@@ -111,21 +119,19 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
         self.spinner_fnumber.setToolTip("La Longitud Focal (Focal Length) determina el ángulo de visión de la cámara. Valores bajos dan un ángulo amplio (gran angular), valores altos dan un ángulo estrecho (teleobjetivo).")
         h_layout_fnumber.addWidget(label_fnumber)
         h_layout_fnumber.addWidget(self.spinner_fnumber)
-        
-        camera_options_layout.addLayout(h_layout_fnumber) 
+
+        camera_options_layout.addLayout(h_layout_fnumber)
 
         self.btn_apply_fnumber = QtWidgets.QPushButton("Aplicar F-Number a Cámaras Seleccionadas")
         self.btn_apply_fnumber.clicked.connect(self.apply_f_number)
         self.btn_apply_fnumber.setToolTip("El F-Number (F-Stop) controla la apertura de la cámara (cantidad de luz que entra) y la profundidad de campo (qué tan desenfocados aparecen los elementos fuera de foco). Valores bajos (ej. f/2.8) dan más luz y un desenfoque mayor; valores altos (ej. f/16) dan menos luz y mayor nitidez en toda la escena.")
         camera_options_layout.addWidget(self.btn_apply_fnumber)
-        
-        ##### boton para herramienta de importacion
+
         self.btn_importar = QtWidgets.QPushButton("Abrir Importar Modelos")
         self.btn_importar.setFixedSize(270, 40)
         self.btn_importar.clicked.connect(self.ejecutar_script_python)
         self.btn_importar.setToolTip("Abre una herramienta externa para importar modelos 3D a la escena.")
 
-        ######################################################################################################################
         #CAMERA AA
         # --- SECCIÓN: OPCIONES DE CALIDAD DE RENDER ---
         render_quality_group = QtWidgets.QGroupBox("Calidad de Render (Arnold)")
@@ -137,39 +143,92 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
         label_aa = QtWidgets.QLabel("Camera (AA) Samples:")
         label_aa.setToolTip("Controla la calidad general del anti-aliasing y el muestreo de la imagen. Un valor más alto reduce el ruido y mejora la nitidez.")
         self.spinner_aa_samples = QtWidgets.QSpinBox()
-        self.spinner_aa_samples.setRange(1, 15) 
-        self.spinner_aa_samples.setValue(5)    
+        self.spinner_aa_samples.setRange(1, 15)
+        self.spinner_aa_samples.setValue(5)
         h_layout_aa.addWidget(label_aa)
         h_layout_aa.addWidget(self.spinner_aa_samples)
         render_quality_layout.addLayout(h_layout_aa)
-        
+
         # Botón para aplicar la calidad de render
         self.btn_apply_render_quality = QtWidgets.QPushButton("Aplicar Calidad de Render")
-        self.btn_apply_render_quality.clicked.connect(self.apply_render_quality) 
+        self.btn_apply_render_quality.clicked.connect(self.apply_render_quality)
         self.btn_apply_render_quality.setToolTip("Camera (AA) Samples controla la calidad general del renderizado y el suavizado de bordes (anti-aliasing). Un valor más alto reduce el ruido visual y mejora la nitidez de la imagen.")
         render_quality_layout.addWidget(self.btn_apply_render_quality)
 
         render_quality_group.setLayout(render_quality_layout)
-        layout.addWidget(render_quality_group) 
+        layout.addWidget(render_quality_group)
 
-        layout.addWidget(self.status_label) 
-        self.setLayout(layout) 
-        
-        layout.addWidget(self.btn_importar)
-        
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.btn_importar, alignment=QtCore.Qt.AlignCenter)
+
+        # --- NUEVO BOTÓN: Abrir Opciones Adicionales ---
+        self.btn_open_additional_options = QtWidgets.QPushButton("Abrir Opciones Adicionales")
+        self.btn_open_additional_options.setFixedSize(270, 40)
+        self.btn_open_additional_options.clicked.connect(self.open_additional_options_script)
+        self.btn_open_additional_options.setToolTip("Abre un script Python externo con funcionalidades adicionales (ej. Ambient Occlusion, configuraciones avanzadas).")
+        layout.addWidget(self.btn_open_additional_options, alignment=QtCore.Qt.AlignCenter)
+
         self.setLayout(layout)
-        
+
     def ejecutar_script_python(self):
-        ruta_script = r"C:\Users\irghhd\OneDrive - Trane Technologies\Desktop\Max\Max\importar.py" 
-        
+        ruta_script = r"C:\Users\irghhd\OneDrive - Trane Technologies\Desktop\Max\Max\importar.py"
+
         if os.path.exists(ruta_script):
             try:
+                # Usar exec() para ejecutar el script de importar modelos
                 with open(ruta_script, 'r', encoding='utf-8') as file:
-                    exec(file.read(), globals()) 
+                    exec(file.read(), globals())
+                self.status_label.setText(f"✅ Script de importar modelos '{os.path.basename(ruta_script)}' ejecutado.")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Error de ejecución del script Python secundario", str(e))
+                self.status_label.setText(f"❌ Error al ejecutar script de importar modelos: {e}")
         else:
             QtWidgets.QMessageBox.warning(self, "Archivo Python no encontrado", f"No se encontró el archivo:\n{ruta_script}")
+            self.status_label.setText(f"❌ Script de importar modelos '{os.path.basename(ruta_script)}' no encontrado.")
+
+    def open_additional_options_script(self):
+        """
+        Importa y ejecuta la función principal del script de opciones adicionales.
+        """
+        script_full_path = os.path.join(ADDITIONAL_OPTIONS_SCRIPT_DIR, ADDITIONAL_OPTIONS_SCRIPT_NAME)
+
+        if not os.path.exists(script_full_path):
+            QtWidgets.QMessageBox.warning(self, "Archivo Python no encontrado", f"No se encontró el archivo:\n{script_full_path}")
+            self.status_label.setText(f"❌ Script de opciones adicionales '{ADDITIONAL_OPTIONS_SCRIPT_NAME}' no encontrado.")
+            return
+
+        # Añadir la ruta del directorio del script al path de Python si no está
+        if ADDITIONAL_OPTIONS_SCRIPT_DIR not in sys.path:
+            sys.path.append(ADDITIONAL_OPTIONS_SCRIPT_DIR)
+            rt.format("Añadido %s al sys.path\n", ADDITIONAL_OPTIONS_SCRIPT_DIR)
+
+        try:
+            # Obtener el nombre del módulo (sin la extensión .py)
+            module_name = os.path.splitext(ADDITIONAL_OPTIONS_SCRIPT_NAME)[0]
+
+            # Si el módulo ya ha sido importado, lo recargamos para tomar los últimos cambios
+            if module_name in sys.modules:
+                ao_module = importlib.reload(sys.modules[module_name])
+                rt.format("Recargado módulo: %s\n", module_name)
+            else:
+                # Si no ha sido importado, lo importamos
+                ao_module = importlib.import_module(module_name)
+                rt.format("Importado módulo: %s\n", module_name)
+
+            # Llamar a la función principal del módulo para mostrar su UI
+            if hasattr(ao_module, 'run_additional_options_ui'):
+                ao_module.run_additional_options_ui()
+                self.status_label.setText(f"✅ Script de opciones adicionales '{ADDITIONAL_OPTIONS_SCRIPT_NAME}' ejecutado.")
+            else:
+                raise AttributeError(f"La función 'run_additional_options_ui' no se encontró en el script '{ADDITIONAL_OPTIONS_SCRIPT_NAME}'.")
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error al abrir opciones adicionales", str(e))
+            self.status_label.setText(f"❌ Error al ejecutar script de opciones adicionales: {e}")
+            # Quitar la ruta del path si la añadimos y hubo un error, para evitar conflictos futuros
+            if ADDITIONAL_OPTIONS_SCRIPT_DIR in sys.path:
+                sys.path.remove(ADDITIONAL_OPTIONS_SCRIPT_DIR)
+
 
     def importar_luz_skydome(self):
         self.status_label.setText("Importando luz, por favor espere...")
@@ -204,33 +263,25 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
         try:
             if not os.path.exists(CAMARA_S_E_FILE):
                 raise FileNotFoundError(f"El archivo de la cámara no se encontró en: {CAMARA_S_E_FILE}")
-            
+
             objetos_antes = set(rt.objects)
             rt.mergeMaxFile(CAMARA_S_E_FILE)
             objetos_despues = set(rt.objects)
             nuevos_objetos = objetos_despues - objetos_antes
 
             camara_importada = False
-            # Aquí, ya no intentamos activar el control de exposición individual
-            # ni el control de exposición global de la escena.
             for obj in nuevos_objetos:
                 if rt.isKindOf(obj, rt.Camera):
                     camara_importada = True
-                    # Opcional: Si quieres un mensaje de consola para indicar que la cámara fue importada
-                    rt.format("✅ Cámara importada: %s\n", obj.name) 
-                    
+                    rt.format("✅ Cámara importada: %s\n", obj.name)
+
             if not camara_importada:
                 self.status_label.setText("⚠️ Cámara importada, pero no se encontró. Revisa el archivo.")
             else:
-                # Mensaje actualizado para reflejar que la configuración de exposición es externa
                 self.status_label.setText("✅ ¡Cámara importada con éxito! La exposición se maneja por preset.")
-            
+
         except Exception as e:
             self.status_label.setText(f"❌ Error durante la importación de la cámara: {e}")
-
-    # Eliminamos la función configurar_exposure_control_escena ya que no es necesaria
-    # def configurar_exposure_control_escena(self):
-    #    ... (código anterior de esta función) ...
 
 
     def configurar_tamano_render(self):
@@ -292,7 +343,7 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
                 self.status_label.setText("⚠️ No se encontró ninguna cámara compatible.")
         except Exception as e:
             self.status_label.setText(f"❌ Error: {e}")
-            
+
     def desactivar_auto_tilt(self):
         self.status_label.setText("Desactivando Auto Vertical Tilt Correction y reiniciando inclinación vertical...")
         QtWidgets.QApplication.processEvents()
@@ -303,7 +354,7 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
                 if hasattr(obj, 'autoVerticalTiltCorrection') and hasattr(obj, 'verticalTiltCorrection'):
                     try:
                         obj.autoVerticalTiltCorrection = False
-                        obj.verticalTiltCorrection = 0.0 
+                        obj.verticalTiltCorrection = 0.0
                         camaras_afectadas += 1
                     except:
                         pass
@@ -314,9 +365,8 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
                 self.status_label.setText("⚠️ No se encontró ninguna cámara compatible.")
         except Exception as e:
             self.status_label.setText(f"❌ Error: {e}")
-            
-            
-    ########################################################################################################
+
+
     def apply_focal_length(self):
         focal_value = self.spinner.value()
         updated = 0
@@ -341,7 +391,6 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
 
         self.status_label.setText(f"Se actualizaron {updated} cámaras con focal length = {focal_value} mm.")
 
-    ########################################################################################################
     def apply_f_number(self):
         f_number_value = self.spinner_fnumber.value()
         updated = 0
@@ -355,7 +404,7 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
             if str(obj_class) == "Physical":
                 try:
                     if rt.isProperty(obj, "f_number"):
-                        obj.f_number = f_number_value 
+                        obj.f_number = f_number_value
                         updated += 1
                         rt.format("✅ %: f_number cambiado a %\n", obj.name, f_number_value)
                     else:
@@ -368,17 +417,17 @@ class ImportSceneElementsUI(QtWidgets.QDialog):
                 skipped += 1
 
         self.status_label.setText(f"Se actualizaron {updated} cámaras con F-Number = {f_number_value}. (Ignoradas: {skipped})")
-    ############################################################################################################################
+
     def apply_render_quality(self):
         try:
             renderer_class_name = str(rt.classof(rt.renderers.current))
-            rt.format("Clase del renderizador actual: %s\n", renderer_class_name) 
+            rt.format("Clase del renderizador actual: %s\n", renderer_class_name)
         except Exception as e:
             self.status_label.setText(f"Error al obtener la clase del renderizador: {str(e)}")
             rt.format("❌ Error al obtener la clase del renderizador: %\n", str(e))
-            return 
+            return
 
-        if renderer_class_name == "Arnold": 
+        if renderer_class_name == "Arnold":
             aa_samples = self.spinner_aa_samples.value()
 
             try:
@@ -406,4 +455,5 @@ def main():
     dialog.show()
 
 if __name__ == "__main__":
+    import sys # Asegúrate de que sys esté importado aquí
     main()
